@@ -29,23 +29,63 @@ TARGET_CHANNELS = [
     "https://t.me/s/Master_of_binanace",
     "https://t.me/s/bananaleaks",
     "https://t.me/s/Crypto_leakk",
-    "https://t.me/s/scalping_300_vip"
+    "https://t.me/s/scalping_300_vip",
+    'https://t.me/s/thebitcoindine',
+    'https://t.me/s/CryptoKlondikePremium',
+    'https://t.me/s/thebitcoindiner',
+    'https://t.me/s/AlwaysWinChannel',
+    'https://t.me/s/USABitcoinArmy',
+    'https://t.me/s/AltSignal_VIP',
+    'https://t.me/s/BinanceKillersVipOfficial',
+    'https://t.me/s/FedRussianInsidersOfficial',
+    'https://t.me/s/DLXTRADE',
+    'https://t.me/s/THEWOLF_REAL',
+    'https://t.me/s/crypto_musk1',
+    'https://t.me/s/CryptoHeaven',
+    'https://t.me/s/CryptoMonk_Japan',
+    'https://t.me/s/k4kryptoo',
+    'https://t.me/s/KingCryptoCalls',
+    'https://t.me/s/arscryptocalls7',
+    'https://t.me/s/Crypto_Freemium2',
+    'https://t.me/s/cryptos_musk',
+    'https://t.me/s/CryptoSharksTelegram',
+    'https://t.me/s/black_whales_signals',
+    'https://t.me/s/AlwaysWinChannel',
+    'https://t.me/s/CryptoKlondikePremium',
+    'https://t.me/s/thebitcoindiner',
+    'https://t.me/s/Golden_Bull_Signals',
+    'https://t.me/s/vipbaz_signal',
+    'https://t.me/s/amanvipcrypto',
+    'https://t.me/s/Market_Owners_Team',
+    'https://t.me/s/doublegtrading',
+    'https://t.me/s/Crypto_Safe_Calls',
+    'https://t.me/s/binance_360',
+    'https://t.me/s/gorilla_crypto',
+    'https://t.me/s/crypto_freemium',
+    'https://t.me/s/AltSignal_VIP',
+    'https://t.me/s/crypto_freemium',
+    'https://t.me/s/CryptoCoinsCoachCF'
 ]
 
 # Track last processed message for each channel
 last_processed_msgs = defaultdict(str)
 
 # Keywords to look for in messages
-KEYWORDS = ['long', 'short']
+KEYWORDS = ['long', 'short', 'sell', 'buy']
 
 # Bot configuration
-TELEGRAM_TOKEN = ""  # Get from @BotFather
+TELEGRAM_TOKEN = "7971625984:AAH-TSsdzkz4qFkiSeSwHUUNY7bGQ_oJbcY"  # Get from @BotFather
 TELEGRAM_CHANNEL_ID = "-1002414029295"  # Channel to forward signals to
 TELEGRAM_CHANNEL_USERNAME = "@RexTrade101"  # Channel username
 GEMINI_KEYS = [    # Add more keys as needed
-
+    "AIzaSyBCNB4lKToycJ7o80pjdyezROASl6ewhck",
+    "AIzaSyBWgcETIilK1qjuCreKA3m65zI5byOVYJM",
+    "AIzaSyCyuF9GiSLCJKTq6rWs0suadkJUREKJByA",
+    "AIzaSyDCZ2K0YJ_DqmRUD0pkqitqY-aqEfUo0EA",
+    "AIzaSyAhGQY7gOAA4vZ-L5PukVSQa5R5sXWinUU",
+    "AIzaSyDQ8ffQ4xfkewCEhcb5UYNwsWPKFTBog04",
 ]
-GEMINI_MODEL = 'gemini-2.5-pro-exp-03-25'
+GEMINI_MODEL = 'gemini-2.0-flash-lite'
 
 # Key rotation state
 current_key_index = 0
@@ -159,6 +199,32 @@ Example output:
 }
 """
 
+# New validation prompt
+VALIDATION_PROMPT = """You are a trading signal validator. Your task is to determine if a message contains a valid cryptocurrency trading signal.
+
+When I give you a message, respond ONLY with a JSON object with this structure:
+{
+    "is_valid_signal": true/false,
+    "reason": "brief explanation"
+}
+
+A valid trading signal MUST contain AT LEAST:
+1. A trading pair (like BTC/USDT, ETH/USD, etc.)
+2. A position direction (LONG/SHORT/BUY/SELL)
+
+Examples of valid signals:
+- "LONG BTC/USDT with 50x leverage Entry at 65000 TP: 66000, 67000 SL: 64000"
+- "Short ETH/USDT at 3400, target 3300, stop at 3500"
+- "BTC entry now 🔥 targets at 68K and 70K"
+
+Examples of invalid signals:
+- "Market is looking bearish today"
+- "Who's ready for some trading today?"
+- "Check out our new platform at trading.example.com"
+
+ONLY respond with the JSON object, nothing else.
+"""
+
 # =============== Helper Functions ===============
 
 def retry_on_error(func, max_retries=3, delay=2):
@@ -211,9 +277,54 @@ def forward_to_channel(formatted_signal):
         raise
 
 @retry_on_error
+def validate_signal(message_text):
+    """Validate if the message is a proper trading signal using Gemini AI."""
+    try:
+        # Create prompt with user's message
+        prompt = VALIDATION_PROMPT + "\n\nMessage:\n" + message_text
+
+        # Get response from Gemini with key rotation
+        client = get_next_gemini_client()
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt
+        )
+
+        # Parse JSON response from the text content
+        try:
+            # Get the response text and try to parse it as JSON
+            response_text = response.text
+            # Clean up the response text in case it contains markdown formatting
+            if '```json' in response_text:
+                response_text = response_text.split('```json')[1].split('```')[0].strip()
+            elif '```' in response_text:
+                response_text = response_text.split('```')[1].split('```')[0].strip()
+
+            validation_result = json.loads(response_text)
+            
+            # Log the validation result
+            logger.info(f"Signal validation result: {validation_result}")
+            
+            return validation_result.get('is_valid_signal', False), validation_result.get('reason', 'Unknown reason')
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse validation JSON: {response_text}")
+            return False, "Failed to validate signal format"
+
+    except Exception as e:
+        logger.error(f"Error validating message: {str(e)}")
+        return False, f"Validation error: {str(e)}"
+
+@retry_on_error
 def process_message_with_gemini(message_text):
     """Process message text using Gemini AI to extract trading information."""
     try:
+        # First validate if this is a proper trading signal
+        is_valid, reason = validate_signal(message_text)
+        if not is_valid:
+            logger.info(f"Message rejected as invalid signal: {reason}")
+            return None, reason
+            
         # Create prompt with user's message
         prompt = GEMINI_PROMPT + "\n\nMessage:\n" + message_text
 
@@ -241,11 +352,11 @@ def process_message_with_gemini(message_text):
                 data['leverage'] = 36
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {response_text}")
-            raise ValueError("Failed to parse trading information from response")
+            return None, "Failed to parse trading information from response"
 
         # Validate required fields
         if not data.get('pair') or not data.get('position_type'):
-            raise ValueError("Missing required trading information")
+            return None, "Missing required trading information"
 
         # Format the message
         formatted_message = MESSAGE_TEMPLATE.format(
@@ -258,13 +369,13 @@ def process_message_with_gemini(message_text):
             stop_loss=format_stop_loss(data.get('stop_loss', []))
         )
 
-        return formatted_message
+        return formatted_message, None
 
     except Exception as e:
         error_message = f"Error processing message: {str(e)}\n"
         error_message += "Please ensure your message contains the required trading information."
         logger.error(f"Error processing message: {str(e)}")
-        return error_message
+        return None, error_message
 
 # =============== Bot Setup & Handlers ===============
 
@@ -304,28 +415,32 @@ def process_signal(message):
         processing_msg = bot.reply_to(message, "Processing your signal... ⚙️")
 
         # Process the message using Gemini AI
-        formatted_signal = process_message_with_gemini(message.text)
+        formatted_signal, error = process_message_with_gemini(message.text)
 
         # Delete the processing message
         bot.delete_message(message.chat.id, processing_msg.message_id)
 
-        # Send the formatted signal to the user
-        bot.reply_to(message, formatted_signal)
+        if formatted_signal:
+            # Send the formatted signal to the user
+            bot.reply_to(message, formatted_signal)
 
-        # Forward the signal and sticker to the channel
-        try:
-            # First send the signal
-            forward_to_channel(formatted_signal)
-
-            # Then send the sticker
+            # Forward the signal and sticker to the channel
             try:
-                send_sticker_to_channel()
+                # First send the signal
+                forward_to_channel(formatted_signal)
+
+                # Then send the sticker
+                try:
+                    send_sticker_to_channel()
+                except Exception as e:
+                    logger.error(f"Failed to send sticker to channel: {str(e)}")
+                    # Don't raise sticker error to user
             except Exception as e:
-                logger.error(f"Failed to send sticker to channel: {str(e)}")
-                # Don't raise sticker error to user
-        except Exception as e:
-            logger.error(f"Failed to forward signal to channel: {str(e)}")
-            # Don't raise the error to the user, as the signal was still successfully processed
+                logger.error(f"Failed to forward signal to channel: {str(e)}")
+                # Don't raise the error to the user, as the signal was still successfully processed
+        else:
+            # Message wasn't a valid signal
+            bot.reply_to(message, f"⚠️ Invalid trading signal: {error}\n\nPlease ensure your message contains a trading pair and position type (LONG/SHORT).")
 
     except Exception as e:
         bot.reply_to(message, f"An error occurred: {str(e)}\nPlease try again.")
@@ -369,18 +484,25 @@ def check_channel(url):
             return
 
         # Process only this single latest message
-        text = text_elem.get_text().lower()
+        text = text_elem.get_text()
+        text_lower = text.lower()
         
         # Only process if it contains our keywords
-        if any(keyword in text for keyword in KEYWORDS):
+        if any(keyword in text_lower for keyword in KEYWORDS):
             logger.info(f"Found matching keywords in channel {url}: {text[:50]}...")
-            formatted_signal = process_message_with_gemini(text)
-            if formatted_signal and "Error processing message" not in formatted_signal:
+            
+            # Validate and process the signal
+            formatted_signal, error = process_message_with_gemini(text)
+            
+            if formatted_signal:
+                logger.info(f"Valid signal detected. Forwarding to channel...")
                 forward_to_channel(formatted_signal)
                 try:
                     send_sticker_to_channel()
                 except Exception as e:
                     logger.error(f"Failed to send sticker: {str(e)}")
+            else:
+                logger.info(f"Invalid signal detected: {error}. Not forwarding to channel.")
         else:
             logger.debug(f"No keywords found in latest message from {url}")
         
@@ -397,7 +519,7 @@ def channel_monitor():
             for url in TARGET_CHANNELS:
                 check_channel(url)
             # Sleep between checks
-            time.sleep(1)  # Check every minute
+            time.sleep(30)  # Check every 30 seconds
     except KeyboardInterrupt:
         logger.info("Channel monitor stopped by user")
     except Exception as e:
