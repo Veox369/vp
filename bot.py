@@ -39,16 +39,11 @@ last_processed_msgs = defaultdict(str)
 KEYWORDS = ['long', 'short']
 
 # Bot configuration
-TELEGRAM_TOKEN = "7971625984:AAH-TSsdzkz4qFkiSeSwHUUNY7bGQ_oJbcY"  # Get from @BotFather
+TELEGRAM_TOKEN = ""  # Get from @BotFather
 TELEGRAM_CHANNEL_ID = "-1002414029295"  # Channel to forward signals to
 TELEGRAM_CHANNEL_USERNAME = "@RexTrade101"  # Channel username
 GEMINI_KEYS = [    # Add more keys as needed
-    "AIzaSyBCNB4lKToycJ7o80pjdyezROASl6ewhck",
-    "AIzaSyBWgcETIilK1qjuCreKA3m65zI5byOVYJM",
-    "AIzaSyCyuF9GiSLCJKTq6rWs0suadkJUREKJByA",
-    "AIzaSyDCZ2K0YJ_DqmRUD0pkqitqY-aqEfUo0EA",
-    "AIzaSyAhGQY7gOAA4vZ-L5PukVSQa5R5sXWinUU",
-    "AIzaSyDQ8ffQ4xfkewCEhcb5UYNwsWPKFTBog04",
+
 ]
 GEMINI_MODEL = 'gemini-2.5-pro-exp-03-25'
 
@@ -402,7 +397,7 @@ def channel_monitor():
             for url in TARGET_CHANNELS:
                 check_channel(url)
             # Sleep between checks
-            time.sleep(30)  # Check every minute
+            time.sleep(1)  # Check every minute
     except KeyboardInterrupt:
         logger.info("Channel monitor stopped by user")
     except Exception as e:
