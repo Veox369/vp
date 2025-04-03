@@ -5,6 +5,7 @@ import telebot
 import datetime
 import requests
 import re
+import os
 from google import genai
 from bs4 import BeautifulSoup
 from collections import defaultdict
@@ -12,24 +13,24 @@ from collections import defaultdict
 # =============== Configuration ===============
 
 # Target channels to monitor
-TARGET_CHANNELS = [
-    "https://t.me/s/leaks_vip_signals",
-    "https://t.me/s/Alex_100_x",
-    "https://t.me/s/klondike_freemium",
-    "https://t.me/s/Master_of_Bybit",
-    "https://t.me/s/BinanceKillersVipChannel",
-    "https://t.me/s/Always_winn",
-    "https://t.me/s/Always_Win_Premium",
-    "https://t.me/s/doublegtrading",
-    "https://t.me/s/uscrypto2",
-    "https://t.me/s/Binance_360_spot",
-    "https://t.me/s/GG_Shot_Leak",
-    "https://t.me/s/Binance_Pro_orginal",
-    "https://t.me/s/BinancePumpSignaIs",
-    "https://t.me/s/Master_of_binanace",
-    "https://t.me/s/bananaleaks",
-    "https://t.me/s/Crypto_leakk",
-    "https://t.me/s/scalping_300_vip",
+TARGET_CHANNELS = [ 
+    'https://t.me/s/leaks_vip_signals',
+    'https://t.me/s/Alex_100_x',
+    'https://t.me/s/klondike_freemium',
+    'https://t.me/s/Master_of_Bybit',
+    'https://t.me/s/BinanceKillersVipChannel',
+    'https://t.me/s/Always_winn',
+    'https://t.me/s/Always_Win_Premium',
+    'https://t.me/s/doublegtrading',
+    'https://t.me/s/uscrypto2',
+    'https://t.me/s/Binance_360_spot',
+    'https://t.me/s/GG_Shot_Leak',
+    'https://t.me/s/Binance_Pro_orginal',
+    'https://t.me/s/BinancePumpSignaIs',
+    'https://t.me/s/Master_of_binanace',
+    'https://t.me/s/bananaleaks',
+    'https://t.me/s/Crypto_leakk',
+    'https://t.me/s/scalping_300_vip',
     'https://t.me/s/thebitcoindine',
     'https://t.me/s/CryptoKlondikePremium',
     'https://t.me/s/thebitcoindiner',
@@ -64,17 +65,41 @@ TARGET_CHANNELS = [
     'https://t.me/s/crypto_freemium',
     'https://t.me/s/AltSignal_VIP',
     'https://t.me/s/crypto_freemium',
-    'https://t.me/s/CryptoCoinsCoachCF'
+    'https://t.me/s/CryptoCoinsCoachCF',
+    'https://t.me/s/signnal_free',
+    'https://t.me/s/IRAN_LEAK',
+    'https://t.me/s/best_signaaal',
+    'https://t.me/s/bitunix_free',
+    'https://t.me/s/doctor_traader',
+    'https://t.me/s/whale_trade20',
+    'https://t.me/s/uscrypto2',
+    'https://t.me/s/CryptoLeaksd',
+    'https://t.me/s/cryptoleaksz_group',
+    'https://t.me/s/cryptoleakss',
+    'https://t.me/s/Drvkich_Leaks',
+    'https://t.me/s/RayanFuture',
+    'https://t.me/s/Mahyar_Trade',
+    'https://t.me/s/darabi_finance',
+    'https://t.me/s/bitclub111',
 ]
 
 # Track last processed message for each channel
 last_processed_msgs = defaultdict(str)
 
+# Cache for previously sent signals to prevent duplicates - Expanded from 15 to 100
+MAX_CACHE_SIZE = 100
+
+# Signal cache data structure - now using a list of dictionaries with timestamps
+sent_signals_cache = []
+
+# Persistent cache file
+CACHE_FILE = "signal_cache.json"
+
 # Keywords to look for in messages
-KEYWORDS = ['long', 'short', 'sell', 'buy']
+KEYWORDS = ['long', 'short', 'sell', 'buy', "لانگ", "شورت"]
 
 # Bot configuration
-TELEGRAM_TOKEN = "7971625984:AAH-TSsdzkz4qFkiSeSwHUUNY7bGQ_oJbcY"  # Get from @BotFather
+TELEGRAM_TOKEN = "7971625984:AAGHWuslvYvoebhWHTp6Xg67ReC3iGddhU0"  # Get from @BotFather
 TELEGRAM_CHANNEL_ID = "-1002414029295"  # Channel to forward signals to
 TELEGRAM_CHANNEL_USERNAME = "@RexTrade101"  # Channel username
 GEMINI_KEYS = [    # Add more keys as needed
@@ -89,6 +114,17 @@ GEMINI_MODEL = 'gemini-2.0-flash-lite'
 
 # Key rotation state
 current_key_index = 0
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('bot.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 def get_next_gemini_client():
     """Get the next Gemini client using key rotation."""
@@ -106,31 +142,34 @@ def get_next_gemini_client():
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 start_time = datetime.datetime.now()
 
-@bot.message_handler(commands=['status'])
-def send_status(message):
-    """Handle /status command to show current API key info."""
-    status_text = f"""
-Bot Status:
-• Total API Keys: {len(GEMINI_KEYS)}
-• Current Key: {current_key_index + 1}
-• Model: {GEMINI_MODEL}
-• Channel: {TELEGRAM_CHANNEL_USERNAME}
-• Running since: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
-    """
-    bot.reply_to(message, status_text)
+# =============== Cache Persistence Functions ===============
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+def load_cache():
+    """Load the signal cache from disk if it exists."""
+    global sent_signals_cache
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r') as f:
+                cache_data = json.load(f)
+                # Convert the loaded data into our cache format
+                sent_signals_cache = cache_data
+                logger.info(f"Loaded {len(sent_signals_cache)} signals from cache file")
+    except Exception as e:
+        logger.error(f"Error loading cache file: {str(e)}")
+        # Start with empty cache if there's a problem
+        sent_signals_cache = []
 
-# Message template
+def save_cache():
+    """Save the current signal cache to disk."""
+    try:
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(sent_signals_cache, f)
+        logger.info(f"Saved {len(sent_signals_cache)} signals to cache file")
+    except Exception as e:
+        logger.error(f"Error saving cache file: {str(e)}")
+
+# =============== Message Template ===============
+
 MESSAGE_TEMPLATE = """
 🪙  • {pair}
 
@@ -158,15 +197,24 @@ MESSAGE_TEMPLATE = """
 
 •—•—•—•—•—•—•
 
-💀🔥 • @RexTrade101
+{source_section}💀🔥 • @RexTrade101
 """
+
+SOURCE_TEMPLATE = """📢  •  SOURCE :
+{source_link}
+
+•—•—•—•—•—•—•
+
+"""
+
+# =============== Gemini Prompts ===============
 
 # Gemini prompt
 GEMINI_PROMPT = """You are a trading signal parser. Your task is to extract trading information from messages and format it as JSON.
 
 When I give you a message, respond ONLY with a JSON object containing these exact fields:
 {
-    "pair": "string",         // The trading pair in caps (e.g., "BTC/USDT")
+    "pair": "string",         // The trading pair in caps and alwaes use "/" befor usdt and usd (e.g., "BTC/USDT")
     "position_type": "string", // Must be exactly "LONG" or "SHORT"
     "leverage": "number",      // The leverage value (e.g., 50)
     "entry_price": "string",   // The entry price or "MARKET" if not specified
@@ -227,7 +275,7 @@ ONLY respond with the JSON object, nothing else.
 
 # =============== Helper Functions ===============
 
-def retry_on_error(func, max_retries=3, delay=2):
+def retry_on_error(func, max_retries=6, delay=3):
     """Retry a function on error with exponential backoff."""
     def wrapper(*args, **kwargs):
         for attempt in range(max_retries):
@@ -253,6 +301,77 @@ def format_stop_loss(stop_loss):
         return "1) 5% - 10% "
     return "\n".join(f"{i+1}) {sl}" for i, sl in enumerate(stop_loss))
 
+def get_signal_fingerprint(pair, position_type, entry_price=None):
+    """Creates a unique identifier for a signal based on its properties"""
+    # Clean and standardize the values for comparison
+    if pair:
+        pair = pair.upper().strip()
+    if position_type:
+        position_type = position_type.upper().strip()
+    if entry_price and entry_price != "MARKET":
+        # Normalize price to handle slight variations in decimal places
+        try:
+            # Round to 2 decimal places for consistency
+            entry_price = str(round(float(entry_price), 2))
+        except:
+            # If can't convert to float, use as is
+            pass
+    
+    return f"{pair}_{position_type}_{entry_price}"
+
+def is_duplicate_signal(formatted_signal, signal_data=None):
+    """
+    Enhanced duplicate detection that checks both exact matches and key signal properties
+    
+    Args:
+        formatted_signal (str): The formatted signal text
+        signal_data (dict, optional): Dictionary with extracted signal data
+        
+    Returns:
+        bool: True if duplicate detected, False otherwise
+    """
+    current_time = int(time.time())
+    
+    # 1. Basic exact match check against all cached signals
+    for cached_signal in sent_signals_cache:
+        if cached_signal.get('formatted_signal') == formatted_signal:
+            logger.info("Duplicate signal detected (exact text match)")
+            return True
+    
+    # 2. Fingerprint-based check if we have signal data
+    if signal_data and isinstance(signal_data, dict):
+        pair = signal_data.get('pair')
+        position_type = signal_data.get('position_type')
+        entry_price = signal_data.get('entry_price')
+        
+        if pair and position_type:
+            current_fingerprint = get_signal_fingerprint(pair, position_type, entry_price)
+            
+            # Check against all cached signals (with fingerprints)
+            for cached_signal in sent_signals_cache:
+                cached_fingerprint = cached_signal.get('fingerprint')
+                if cached_fingerprint and cached_fingerprint == current_fingerprint:
+                    # Check if it's recent (within 6 hours)
+                    signal_time = cached_signal.get('timestamp', 0)
+                    if current_time - signal_time < 21600:  # 6 hours in seconds
+                        logger.info(f"Duplicate signal detected (matching fingerprint: {current_fingerprint})")
+                        return True
+    
+            # Also check for same pair + position within short time
+            for cached_signal in sent_signals_cache:
+                cached_pair = cached_signal.get('pair')
+                cached_position = cached_signal.get('position_type')
+                
+                if cached_pair and cached_position and cached_pair == pair and cached_position == position_type:
+                    # Check if it's very recent (within 1 hour)
+                    signal_time = cached_signal.get('timestamp', 0)
+                    if current_time - signal_time < 3600:  # 1 hour in seconds
+                        logger.info(f"Possible duplicate: {pair} {position_type} signal detected within last hour")
+                        return True
+    
+    # No duplicates found
+    return False
+
 @retry_on_error
 def send_sticker_to_channel():
     """Send the sticker to the channel after a signal."""
@@ -266,11 +385,49 @@ def send_sticker_to_channel():
         raise
 
 @retry_on_error
-def forward_to_channel(formatted_signal):
-    """Forward the formatted signal to the channel."""
+def forward_to_channel(formatted_signal, signal_data=None):
+    """Forward the formatted signal to the channel if it's not a duplicate."""
     try:
-        bot.send_message(TELEGRAM_CHANNEL_ID, formatted_signal)
+        # Check for duplicates first - enhanced version
+        if is_duplicate_signal(formatted_signal, signal_data):
+            logger.info("Signal not forwarded - duplicate detected")
+            return False
+
+        # Not a duplicate, proceed with sending
+        msg = bot.send_message(TELEGRAM_CHANNEL_ID, formatted_signal)
         logger.info(f"Signal forwarded to channel {TELEGRAM_CHANNEL_USERNAME}")
+
+        # Prepare cache entry with all relevant data
+        current_time = int(time.time())
+        cache_entry = {
+            'formatted_signal': formatted_signal,
+            'timestamp': current_time,
+            'message_id': getattr(msg, 'message_id', None)
+        }
+        
+        # Add signal data if available
+        if signal_data and isinstance(signal_data, dict):
+            cache_entry.update({
+                'pair': signal_data.get('pair'),
+                'position_type': signal_data.get('position_type'),
+                'entry_price': signal_data.get('entry_price'),
+                'fingerprint': get_signal_fingerprint(
+                    signal_data.get('pair'), 
+                    signal_data.get('position_type'),
+                    signal_data.get('entry_price')
+                )
+            })
+        
+        # Add to our cache of sent signals
+        sent_signals_cache.append(cache_entry)
+        
+        # Keep the cache at a reasonable size
+        if len(sent_signals_cache) > MAX_CACHE_SIZE:
+            sent_signals_cache.pop(0)  # Remove the oldest signal
+            
+        # Save cache to disk
+        save_cache()
+
         return True
     except Exception as e:
         logger.error(f"Failed to forward signal to channel: {str(e)}")
@@ -301,12 +458,12 @@ def validate_signal(message_text):
                 response_text = response_text.split('```')[1].split('```')[0].strip()
 
             validation_result = json.loads(response_text)
-            
+
             # Log the validation result
             logger.info(f"Signal validation result: {validation_result}")
-            
+
             return validation_result.get('is_valid_signal', False), validation_result.get('reason', 'Unknown reason')
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse validation JSON: {response_text}")
             return False, "Failed to validate signal format"
@@ -316,15 +473,15 @@ def validate_signal(message_text):
         return False, f"Validation error: {str(e)}"
 
 @retry_on_error
-def process_message_with_gemini(message_text):
+def process_message_with_gemini(message_text, source_url=None):
     """Process message text using Gemini AI to extract trading information."""
     try:
         # First validate if this is a proper trading signal
         is_valid, reason = validate_signal(message_text)
         if not is_valid:
             logger.info(f"Message rejected as invalid signal: {reason}")
-            return None, reason
-            
+            return None, reason, None
+
         # Create prompt with user's message
         prompt = GEMINI_PROMPT + "\n\nMessage:\n" + message_text
 
@@ -352,11 +509,19 @@ def process_message_with_gemini(message_text):
                 data['leverage'] = 36
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {response_text}")
-            return None, "Failed to parse trading information from response"
+            return None, "Failed to parse trading information from response", None
 
         # Validate required fields
         if not data.get('pair') or not data.get('position_type'):
-            return None, "Missing required trading information"
+            return None, "Missing required trading information", None
+
+        # Check for duplicates using the extracted data
+        if is_duplicate_signal(None, data):
+            logger.info("Signal rejected as duplicate based on content")
+            return None, "This appears to be a duplicate of a recent signal", None
+
+        # Format source section if URL is provided
+        source_section = SOURCE_TEMPLATE.format(source_link=source_url) if source_url else ""
 
         # Format the message
         formatted_message = MESSAGE_TEMPLATE.format(
@@ -366,16 +531,17 @@ def process_message_with_gemini(message_text):
             leverage=data.get('leverage', 'Not specified'),
             entry_price=data.get('entry_price', 'MARKET'),
             take_profits=format_take_profits(data.get('take_profits', [])),
-            stop_loss=format_stop_loss(data.get('stop_loss', []))
+            stop_loss=format_stop_loss(data.get('stop_loss', [])),
+            source_section=source_section
         )
 
-        return formatted_message, None
+        return formatted_message, None, data
 
     except Exception as e:
         error_message = f"Error processing message: {str(e)}\n"
         error_message += "Please ensure your message contains the required trading information."
         logger.error(f"Error processing message: {str(e)}")
-        return None, error_message
+        return None, error_message, None
 
 # =============== Bot Setup & Handlers ===============
 
@@ -396,6 +562,7 @@ I can help format your trading signals professionally. Simply send me your tradi
 Commands:
 /start - Show this help message
 /status - Show bot status and API key info
+/clearcache - Clear the signal cache (admin only)
 
 I'll format it beautifully for you! 📊
 
@@ -407,6 +574,35 @@ SL: 64000"
     """
     bot.reply_to(message, welcome_text)
 
+@bot.message_handler(commands=['status'])
+def send_status(message):
+    """Handle /status command to show current API key info."""
+    status_text = f"""
+Bot Status:
+• Total API Keys: {len(GEMINI_KEYS)}
+• Current Key: {current_key_index + 1}
+• Model: {GEMINI_MODEL}
+• Channel: {TELEGRAM_CHANNEL_USERNAME}
+• Running since: {start_time.strftime('%Y-%m-%d %H:%M:%S')}
+• Signal Cache Size: {len(sent_signals_cache)}/{MAX_CACHE_SIZE}
+    """
+    bot.reply_to(message, status_text)
+
+@bot.message_handler(commands=['clearcache'])
+def clear_cache(message):
+    """Handle /clearcache command to clear the signal cache."""
+    # Admin-only command - replace with your user ID
+    admin_ids = [123456789]  # Replace with actual admin IDs
+    
+    if message.from_user.id in admin_ids:
+        # Clear the cache
+        global sent_signals_cache
+        sent_signals_cache = []
+        save_cache()
+        bot.reply_to(message, "✓ Signal cache cleared successfully!")
+    else:
+        bot.reply_to(message, "⚠️ Sorry, this command is for admins only.")
+
 @bot.message_handler(func=lambda message: True)
 def process_signal(message):
     """Process all other messages as trading signals."""
@@ -414,8 +610,8 @@ def process_signal(message):
         # Inform user that processing is starting
         processing_msg = bot.reply_to(message, "Processing your signal... ⚙️")
 
-        # Process the message using Gemini AI
-        formatted_signal, error = process_message_with_gemini(message.text)
+        # Process the message - source URL is None for direct bot messages
+        formatted_signal, error, signal_data = process_message_with_gemini(message.text, None)
 
         # Delete the processing message
         bot.delete_message(message.chat.id, processing_msg.message_id)
@@ -426,15 +622,14 @@ def process_signal(message):
 
             # Forward the signal and sticker to the channel
             try:
-                # First send the signal
-                forward_to_channel(formatted_signal)
-
-                # Then send the sticker
-                try:
-                    send_sticker_to_channel()
-                except Exception as e:
-                    logger.error(f"Failed to send sticker to channel: {str(e)}")
-                    # Don't raise sticker error to user
+                # First check if it's a duplicate and send if not
+                if forward_to_channel(formatted_signal, signal_data):
+                    # Only send sticker if the signal was actually sent (not a duplicate)
+                    try:
+                        send_sticker_to_channel()
+                    except Exception as e:
+                        logger.error(f"Failed to send sticker to channel: {str(e)}")
+                        # Don't raise sticker error to user
             except Exception as e:
                 logger.error(f"Failed to forward signal to channel: {str(e)}")
                 # Don't raise the error to the user, as the signal was still successfully processed
@@ -445,7 +640,7 @@ def process_signal(message):
     except Exception as e:
         bot.reply_to(message, f"An error occurred: {str(e)}\nPlease try again.")
 
-# =============== Main Execution ===============
+# =============== Channel Monitoring Function ===============
 
 def check_channel(url):
     """Check only the latest message from a channel for keywords, ignoring replies."""
@@ -461,11 +656,11 @@ def check_channel(url):
         messages = soup.find_all('div', class_='tgme_widget_message')
         if not messages:  # No messages found
             return
-            
+
         # Extract the most recent message only
         last_message = messages[-1]  # Get only the last message
         msg_id = last_message.get('data-post', '')
-        
+
         # Skip if this latest message was already processed
         if not msg_id or msg_id == last_processed_msgs[url]:
             return
@@ -476,7 +671,7 @@ def check_channel(url):
             logger.debug(f"Skipping reply message in channel {url}")
             last_processed_msgs[url] = msg_id  # Mark reply as processed
             return
-            
+
         # Get text from the latest message only
         text_elem = last_message.find('div', class_='tgme_widget_message_text')
         if not text_elem:
@@ -486,26 +681,28 @@ def check_channel(url):
         # Process only this single latest message
         text = text_elem.get_text()
         text_lower = text.lower()
-        
+
         # Only process if it contains our keywords
         if any(keyword in text_lower for keyword in KEYWORDS):
             logger.info(f"Found matching keywords in channel {url}: {text[:50]}...")
-            
+
             # Validate and process the signal
-            formatted_signal, error = process_message_with_gemini(text)
-            
+            # Process the message with the source URL
+            formatted_signal, error, signal_data = process_message_with_gemini(text, url)
+
             if formatted_signal:
                 logger.info(f"Valid signal detected. Forwarding to channel...")
-                forward_to_channel(formatted_signal)
-                try:
-                    send_sticker_to_channel()
-                except Exception as e:
-                    logger.error(f"Failed to send sticker: {str(e)}")
+                # forward_to_channel now handles duplicate checking internally
+                if forward_to_channel(formatted_signal, signal_data):
+                    try:
+                        send_sticker_to_channel()
+                    except Exception as e:
+                        logger.error(f"Failed to send sticker: {str(e)}")
             else:
                 logger.info(f"Invalid signal detected: {error}. Not forwarding to channel.")
         else:
             logger.debug(f"No keywords found in latest message from {url}")
-        
+
         # Mark this latest message as processed regardless of keywords
         last_processed_msgs[url] = msg_id
 
@@ -519,26 +716,34 @@ def channel_monitor():
             for url in TARGET_CHANNELS:
                 check_channel(url)
             # Sleep between checks
-            time.sleep(30)  # Check every 30 seconds
+            time.sleep(15)  # Check every 15 seconds
     except KeyboardInterrupt:
         logger.info("Channel monitor stopped by user")
     except Exception as e:
         logger.error(f"Channel monitor error: {str(e)}")
         raise
 
+# =============== Main Execution ===============
 if __name__ == "__main__":
     try:
+        # Load the signal cache from disk
+        load_cache()
+        
         # Start channel monitoring in a separate thread
         import threading
         monitor_thread = threading.Thread(target=channel_monitor)
         monitor_thread.daemon = True
         monitor_thread.start()
-        
+
         # Start the bot
         logger.info("Bot started. Press Ctrl+C to stop.")
         bot.polling(none_stop=True)
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
+        # Save cache on exit
+        save_cache()
     except Exception as e:
         logger.error(f"Bot error: {str(e)}")
+        # Save cache on error
+        save_cache()
         raise
