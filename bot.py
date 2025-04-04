@@ -6,9 +6,158 @@ import datetime
 import requests
 import re
 import os
+import sys
+import psutil
+import signal
+import subprocess
 from google import genai
 from bs4 import BeautifulSoup
 from collections import defaultdict
+import time
+
+# =============== Supervisor System ===============
+
+class BotSupervisor:
+    def __init__(self):
+        self.max_consecutive_failures = 10
+        self.min_recovery_delay = 10
+        self.max_recovery_delay = 300  # 5 minutes
+        self.process = None
+        self.consecutive_failures = 0
+        self.last_restart_time = 0
+        
+    def get_recovery_delay(self):
+        """Calculate recovery delay with exponential backoff."""
+        delay = min(self.max_recovery_delay, 
+                   self.min_recovery_delay * (2 ** self.consecutive_failures))
+        return delay
+        
+    def start_bot(self):
+        """Start the bot process."""
+        try:
+            # Start bot as a separate Python process
+            cmd = [sys.executable, __file__, "--supervised"]
+            self.process = subprocess.Popen(cmd)
+            logger.info("Bot process started with PID: %d", self.process.pid)
+            self.last_restart_time = time.time()
+            return True
+        except Exception as e:
+            logger.error("Failed to start bot process: %s", str(e))
+            return False
+            
+    def check_memory_usage(self):
+        """Check if memory usage is within acceptable limits."""
+        if self.process:
+            try:
+                process = psutil.Process(self.process.pid)
+                memory_percent = process.memory_percent()
+                if memory_percent > 80:  # Restart if using >80% memory
+                    logger.warning("High memory usage (%f%%), restarting bot", 
+                                 memory_percent)
+                    return False
+            except Exception as e:
+                logger.error("Error checking memory usage: %s", str(e))
+        return True
+        
+    def supervise(self):
+        """Main supervision loop."""
+        logger.info("Starting bot supervisor...")
+        
+        while True:
+            try:
+                # Start bot if not running
+                if not self.process or self.process.poll() is not None:
+                    if self.start_bot():
+                        self.consecutive_failures = 0
+                    else:
+                        self.consecutive_failures += 1
+                
+                # Check memory usage
+                if not self.check_memory_usage():
+                    self.process.terminate()
+                    self.process.wait(timeout=30)
+                    continue
+                
+                # Check if bot has been running for too long (restart every 12 hours)
+                if time.time() - self.last_restart_time > 43200:  # 12 hours
+                    logger.info("Performing scheduled restart")
+                    self.process.terminate()
+                    self.process.wait(timeout=30)
+                    continue
+                
+                # Check if process has failed too many times
+                if self.consecutive_failures >= self.max_consecutive_failures:
+                    logger.critical(
+                        "Too many consecutive failures (%d). Supervisor stopping.", 
+                        self.consecutive_failures
+                    )
+                    break
+                
+                # Sleep before next check
+                time.sleep(30)  # Check every 30 seconds
+                
+            except KeyboardInterrupt:
+                logger.info("Supervisor stopped by user")
+                if self.process:
+                    self.process.terminate()
+                    self.process.wait(timeout=30)
+                break
+            except Exception as e:
+                logger.error("Supervisor error: %s", str(e))
+                self.consecutive_failures += 1
+                time.sleep(self.get_recovery_delay())
+
+# Function to check if running as supervised process
+def is_supervised():
+    return "--supervised" in sys.argv
+
+
+# =============== Rate Limit Handler ===============
+class RateLimitHandler:
+    def __init__(self):
+        self.requests_timestamps = defaultdict(list)  # Track timestamps per key
+        self.daily_counts = defaultdict(int)  # Track daily requests per key
+        self.last_reset = {}  # Track when daily counts were last reset
+        
+    def can_use_key(self, key):
+        current_time = time.time()
+        
+        # Clean old timestamps
+        self.requests_timestamps[key] = [
+            ts for ts in self.requests_timestamps[key] 
+            if current_time - ts < 60  # Keep last minute only
+        ]
+        
+        # Check RPM (30 requests per minute)
+        if len(self.requests_timestamps[key]) >= 30:
+            return False
+            
+        # Check RPD and reset if needed (1,500 requests per day)
+        if current_time - self.last_reset.get(key, 0) >= 86400:  # 24 hours
+            self.daily_counts[key] = 0
+            self.last_reset[key] = current_time
+            
+        if self.daily_counts[key] >= 1500:
+            return False
+            
+        return True
+        
+    def log_request(self, key):
+        current_time = time.time()
+        self.requests_timestamps[key].append(current_time)
+        self.daily_counts[key] += 1
+        
+    def get_next_available_key(self, keys):
+        """Find the next available key that hasn't hit rate limits."""
+        for i in range(len(keys)):
+            key = keys[i]
+            if self.can_use_key(key):
+                return i
+        return None
+        
+    def wait_for_reset(self):
+        """Sleep until the next minute to allow rate limits to reset."""
+        time.sleep(61)  # Wait just over a minute
 
 # =============== Configuration ===============
 
@@ -81,13 +230,21 @@ TARGET_CHANNELS = [
     'https://t.me/s/Mahyar_Trade',
     'https://t.me/s/darabi_finance',
     'https://t.me/s/bitclub111',
+    'https://t.me/s/Predictum_PRO',
+    'https://t.me/s/predictumproleak',
+    'https://t.me/s/GGShotLeakss',
+    'https://t.me/s/predictumproo',
+    'https://t.me/s/GG_Shot',
+    'https://t.me/s/GG_shot_VVIP',
+    'https://t.me/s/Free_GGSHOT'
+
 ]
 
 # Track last processed message for each channel
 last_processed_msgs = defaultdict(str)
 
 # Cache for previously sent signals to prevent duplicates - Expanded from 15 to 100
-MAX_CACHE_SIZE = 100
+MAX_CACHE_SIZE = 15
 
 # Signal cache data structure - now using a list of dictionaries with timestamps
 sent_signals_cache = []
@@ -99,18 +256,21 @@ CACHE_FILE = "signal_cache.json"
 KEYWORDS = ['long', 'short', 'sell', 'buy', "لانگ", "شورت"]
 
 # Bot configuration
-TELEGRAM_TOKEN = "7971625984:AAGHWuslvYvoebhWHTp6Xg67ReC3iGddhU0"  # Get from @BotFather
-TELEGRAM_CHANNEL_ID = "-1002414029295"  # Channel to forward signals to
-TELEGRAM_CHANNEL_USERNAME = "@RexTrade101"  # Channel username
+TELEGRAM_TOKEN = "1234567897:AIzaSyxxxxxxxxxxxxxxxxx"  # Get from @BotFather
+TELEGRAM_CHANNEL_ID = "-100xxxxxxxx"  # Channel to forward signals to
+TELEGRAM_CHANNEL_USERNAME = "@xxxxxx"  # Channel username
 GEMINI_KEYS = [    # Add more keys as needed
-    "AIzaSyBCNB4lKToycJ7o80pjdyezROASl6ewhck",
-    "AIzaSyBWgcETIilK1qjuCreKA3m65zI5byOVYJM",
-    "AIzaSyCyuF9GiSLCJKTq6rWs0suadkJUREKJByA",
-    "AIzaSyDCZ2K0YJ_DqmRUD0pkqitqY-aqEfUo0EA",
-    "AIzaSyAhGQY7gOAA4vZ-L5PukVSQa5R5sXWinUU",
-    "AIzaSyDQ8ffQ4xfkewCEhcb5UYNwsWPKFTBog04",
+    "AIzaSyxxxxxxxxxxxxxxxxx",
+    "AIzaSyxxxxxxxxxxxxxxxxx",
+    "AIzaSyxxxxxxxxxxxxxxxxx",
+    "AIzaSyxxxxxxxxxxxxxxxxx",
+    "AIzaSyxxxxxxxxxxxxxxxxx",
+    "AIzaSyxxxxxxxxxxxxxxxxx",
 ]
 GEMINI_MODEL = 'gemini-2.0-flash-lite'
+
+# Initialize rate limit handler
+rate_limit_handler = RateLimitHandler()
 
 # Key rotation state
 current_key_index = 0
@@ -127,16 +287,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def get_next_gemini_client():
-    """Get the next Gemini client using key rotation."""
-    global current_key_index
-    current_key = GEMINI_KEYS[current_key_index]
-    # Get abbreviated key for logging (first 8 chars)
-    key_preview = current_key[:8] + "..." if len(current_key) > 8 else current_key
-    logger.info(f"Using Gemini API Key {current_key_index + 1} ({key_preview})")
-
-    # Rotate to next key
-    current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
-    return genai.Client(api_key=current_key)
+    """Get the next available Gemini client using smart key rotation."""
+    global current_key_index, rate_limit_handler
+    
+    # Try to find an available key
+    attempts = 0
+    while attempts < len(GEMINI_KEYS) * 2:  # Try each key twice before giving up
+        # Get next available key index
+        available_index = rate_limit_handler.get_next_available_key(GEMINI_KEYS)
+        
+        if available_index is not None:
+            current_key = GEMINI_KEYS[available_index]
+            current_key_index = available_index
+            
+            # Get abbreviated key for logging
+            key_preview = current_key[:8] + "..." if len(current_key) > 8 else current_key
+            logger.info(f"Using Gemini API Key {current_key_index + 1} ({key_preview})")
+            
+            # Log this request for rate limiting
+            rate_limit_handler.log_request(current_key)
+            
+            return genai.Client(api_key=current_key)
+            
+        # No available keys, wait for rate limits to reset
+        logger.warning("All API keys are rate limited. Waiting for reset...")
+        rate_limit_handler.wait_for_reset()
+        attempts += 1
+        
+    raise Exception("All API keys are exhausted. Please check key validity and rate limits.")
 
 # Initialize the bot and record start time
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
@@ -197,11 +375,10 @@ MESSAGE_TEMPLATE = """
 
 •—•—•—•—•—•—•
 
-{source_section}💀🔥 • @RexTrade101
+{source_section}💀🔥 • @VeoxTrade
 """
 
-SOURCE_TEMPLATE = """📢  •  SOURCE :
-{source_link}
+SOURCE_TEMPLATE = """💫 FROM: {source_link}
 
 •—•—•—•—•—•—•
 
@@ -300,6 +477,13 @@ def format_stop_loss(stop_loss):
     if not stop_loss:
         return "1) 5% - 10% "
     return "\n".join(f"{i+1}) {sl}" for i, sl in enumerate(stop_loss))
+
+def get_channel_username(url):
+    """Convert channel URL to username format"""
+    match = re.search(r'https://t\.me/s/([^/]+)', url)
+    if match:
+        return f"@{match.group(1)}"
+    return url
 
 def get_signal_fingerprint(pair, position_type, entry_price=None):
     """Creates a unique identifier for a signal based on its properties"""
@@ -492,6 +676,7 @@ def process_message_with_gemini(message_text, source_url=None):
             contents=prompt
         )
 
+
         # Parse JSON response from the text content
         try:
             # Get the response text and try to parse it as JSON
@@ -507,35 +692,40 @@ def process_message_with_gemini(message_text, source_url=None):
             # Handle default leverage value
             if data.get('leverage') is None:
                 data['leverage'] = 36
+
+            # Validate required fields
+            if not data.get('pair') or not data.get('position_type'):
+                return None, "Missing required trading information", None
+
+            # Check for duplicates using the extracted data
+            if is_duplicate_signal(None, data):
+                logger.info("Signal rejected as duplicate based on content")
+                return None, "This appears to be a duplicate of a recent signal", None
+
+            # Format source section if URL is provided
+            source_section = ""
+            if source_url:
+                username = get_channel_username(source_url)
+                if username:
+                    source_section = SOURCE_TEMPLATE.format(source_link=username)
+
+            # Format the message
+            formatted_message = MESSAGE_TEMPLATE.format(
+                pair=data['pair'],
+                position_emoji='🟢' if data['position_type'] == 'LONG' else '🔴',
+                position_type=data['position_type'],
+                leverage=data.get('leverage', 'Not specified'),
+                entry_price=data.get('entry_price', 'MARKET'),
+                take_profits=format_take_profits(data.get('take_profits', [])),
+                stop_loss=format_stop_loss(data.get('stop_loss', [])),
+                source_section=source_section
+            )
+
+            return formatted_message, None, data
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {response_text}")
             return None, "Failed to parse trading information from response", None
-
-        # Validate required fields
-        if not data.get('pair') or not data.get('position_type'):
-            return None, "Missing required trading information", None
-
-        # Check for duplicates using the extracted data
-        if is_duplicate_signal(None, data):
-            logger.info("Signal rejected as duplicate based on content")
-            return None, "This appears to be a duplicate of a recent signal", None
-
-        # Format source section if URL is provided
-        source_section = SOURCE_TEMPLATE.format(source_link=source_url) if source_url else ""
-
-        # Format the message
-        formatted_message = MESSAGE_TEMPLATE.format(
-            pair=data['pair'],
-            position_emoji='🟢' if data['position_type'] == 'LONG' else '🔴',
-            position_type=data['position_type'],
-            leverage=data.get('leverage', 'Not specified'),
-            entry_price=data.get('entry_price', 'MARKET'),
-            take_profits=format_take_profits(data.get('take_profits', [])),
-            stop_loss=format_stop_loss(data.get('stop_loss', [])),
-            source_section=source_section
-        )
-
-        return formatted_message, None, data
 
     except Exception as e:
         error_message = f"Error processing message: {str(e)}\n"
@@ -710,40 +900,118 @@ def check_channel(url):
         logger.error(f"Error checking channel {url}: {str(e)}")
 
 def channel_monitor():
-    """Monitor channels for new messages."""
-    try:
-        while True:
+    """Monitor channels for new messages with error recovery."""
+    consecutive_errors = 0
+    while True:
+        try:
             for url in TARGET_CHANNELS:
-                check_channel(url)
+                try:
+                    check_channel(url)
+                    consecutive_errors = 0  # Reset error counter on success
+                except requests.exceptions.RequestException as e:
+                    logger.warning(f"Network error checking {url}: {str(e)}")
+                    time.sleep(5)  # Brief pause on network error
+                    continue
+                except Exception as e:
+                    logger.error(f"Error checking {url}: {str(e)}")
+                    continue
+                    
             # Sleep between checks
-            time.sleep(15)  # Check every 15 seconds
-    except KeyboardInterrupt:
-        logger.info("Channel monitor stopped by user")
-    except Exception as e:
-        logger.error(f"Channel monitor error: {str(e)}")
-        raise
+            time.sleep(60)  # Check every 15 seconds
+            
+        except KeyboardInterrupt:
+            logger.info("Channel monitor stopped by user")
+            break
+        except Exception as e:
+            logger.error(f"Channel monitor error: {str(e)}")
+            consecutive_errors += 1
+            
+            if consecutive_errors >= 5:
+                logger.critical("Too many consecutive errors. Restarting channel monitor...")
+                time.sleep(30)  # Wait before trying to recover
+                consecutive_errors = 0
+            else:
+                time.sleep(5 * consecutive_errors)  # Exponential backoff
 
-# =============== Main Execution ===============
-if __name__ == "__main__":
+def cleanup_resources():
+    """Cleanup system resources and temporary data."""
     try:
-        # Load the signal cache from disk
-        load_cache()
+        # Clear any temporary files
+        cache_dir = os.path.dirname(CACHE_FILE)
+        if os.path.exists(cache_dir):
+            for file in os.listdir(cache_dir):
+                if file.endswith('.tmp'):
+                    try:
+                        os.remove(os.path.join(cache_dir, file))
+                    except:
+                        pass
         
-        # Start channel monitoring in a separate thread
-        import threading
-        monitor_thread = threading.Thread(target=channel_monitor)
-        monitor_thread.daemon = True
-        monitor_thread.start()
-
-        # Start the bot
-        logger.info("Bot started. Press Ctrl+C to stop.")
-        bot.polling(none_stop=True)
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-        # Save cache on exit
-        save_cache()
+        # Clear memory
+        import gc
+        gc.collect()
+        
+        # Reset connection pools
+        import urllib3
+        try:
+            urllib3.disable_warnings()
+            pool_manager = urllib3.PoolManager()
+            pool_manager.clear()
+        except:
+            pass
+            
     except Exception as e:
-        logger.error(f"Bot error: {str(e)}")
-        # Save cache on error
-        save_cache()
-        raise
+        logger.error(f"Error during cleanup: {str(e)}")
+
+def run_bot_with_recovery():
+    """Run the bot with automatic recovery on failures."""
+    consecutive_failures = 0
+    start_time = time.time()
+    
+    while True:
+        try:
+            # Cleanup resources periodically
+            if time.time() - start_time > 3600:  # Every hour
+                cleanup_resources()
+                start_time = time.time()
+            
+            # Load the signal cache from disk
+            load_cache()
+            
+            # Start channel monitoring in a separate thread
+            import threading
+            monitor_thread = threading.Thread(target=channel_monitor)
+            monitor_thread.daemon = True
+            monitor_thread.start()
+
+            # Start the bot with a timeout
+            logger.info("Bot started. Press Ctrl+C to stop.")
+            bot.polling(none_stop=True, timeout=60)
+            
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
+            save_cache()
+            cleanup_resources()
+            break
+            
+        except Exception as e:
+            logger.error(f"Bot error: {str(e)}")
+            save_cache()
+            cleanup_resources()  # Clean up on error
+            
+            consecutive_failures += 1
+            if consecutive_failures >= 5 and is_supervised():
+                # If running as supervised process, keep retrying
+                logger.error("Too many consecutive failures, waiting for supervisor to restart")
+                time.sleep(60)
+                consecutive_failures = 0
+            elif consecutive_failures >= 5:
+                logger.critical("Too many consecutive failures. Please check bot configuration.")
+                break
+            
+            # Wait before trying to recover (exponential backoff)
+            wait_time = min(300, 30 * (2 ** consecutive_failures))  # Cap at 5 minutes
+            logger.info(f"Attempting recovery in {wait_time} seconds...")
+            time.sleep(wait_time)
+
+if __name__ == "__main__":
+    run_bot_with_recovery()
