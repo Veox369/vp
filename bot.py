@@ -267,7 +267,7 @@ GEMINI_KEYS = [    # Add more keys as needed
     "AIzaSyAhGQY7gOAA4vZ-L5PukVSQa5R5sXWinUU",
     "AIzaSyDQ8ffQ4xfkewCEhcb5UYNwsWPKFTBog04",
 ]
-GEMINI_MODEL = 'gemini-2.0-flash-lite'
+GEMINI_MODEL = 'gemini-2.0-flash'
 
 # Initialize rate limit handler
 rate_limit_handler = RateLimitHandler()
@@ -424,27 +424,115 @@ Example output:
 """
 
 # New validation prompt
-VALIDATION_PROMPT = """You are a trading signal validator. Your task is to determine if a message contains a valid cryptocurrency trading signal.
+VALIDATION_PROMPT = """You are a sophisticated trading signal validator specialized in cryptocurrency markets. Your task is to determine if a message contains a valid cryptocurrency trading signal by carefully analyzing its content.
 
-When I give you a message, respond ONLY with a JSON object with this structure:
+## Response Format
+
+When analyzing a message, respond ONLY with a JSON object using this structure:
+```json
 {
     "is_valid_signal": true/false,
-    "reason": "brief explanation"
+    "reason": "brief explanation",
+    "details": {
+        "trading_pair": "detected pair or null",
+        "position": "detected position (LONG/SHORT/BUY/SELL) or null",
+        "entry_price": "detected entry price or null",
+        "take_profit": ["array of take profit levels or empty"],
+        "stop_loss": "detected stop loss or null",
+        "leverage": "detected leverage or null",
+        "timeframe": "detected timeframe or null",
+        "confidence": 0-100 (percentage of confidence in signal validity)
+    }
 }
-
+Signal Validation Rules
 A valid trading signal MUST contain AT LEAST:
-1. A trading pair (like BTC/USDT, ETH/USD, etc.)
-2. A position direction (LONG/SHORT/BUY/SELL)
 
-Examples of valid signals:
-- "LONG BTC/USDT with 50x leverage Entry at 65000 TP: 66000, 67000 SL: 64000"
-- "Short ETH/USDT at 3400, target 3300, stop at 3500"
-- "BTC entry now 🔥 targets at 68K and 70K"
+A trading pair, which could be represented in various formats:
 
-Examples of invalid signals:
-- "Market is looking bearish today"
-- "Who's ready for some trading today?"
-- "Check out our new platform at trading.example.com"
+Standard format with slash: BTC/USDT, ETH/USD, SOL/USDT
+With hyphen or underscore: BTC-USDT, ETH_USD
+Without separator: BTCUSDT, ETHUSDC
+Common abbreviations: Bitcoin, Ethereum, etc. paired with a fiat/stablecoin
+
+
+A position direction, which could be expressed as:
+
+Explicit terms: LONG, SHORT, BUY, SELL
+Implicit indicators: "going up" (LONG), "bearish" (SHORT)
+Emoji indicators: 🚀 or ⬆️ (LONG/BUY), 🔻 or ⬇️ (SHORT/SELL)
+Context clues: "resistance break" (LONG), "support broken" (SHORT)
+
+
+At least one of the following:
+
+Entry price/zone (specific price or "entry now")
+Take profit target(s)
+Stop loss level
+
+
+
+Signal Detection Techniques
+Look for these components to identify valid signals:
+
+Trading Pairs:
+
+Check for cryptocurrency names (Bitcoin, BTC, Ethereum, ETH, etc.)
+Identify standard trading pairs with any stablecoin or fiat (USDT, USDC, USD, EUR, etc.)
+Recognize non-standard pairs (BTC/ETH, SOL/AVAX, etc.)
+
+
+Position Direction:
+
+Direct terms: LONG, SHORT, BUY, SELL
+Context-based direction: "going to pump" = LONG, "dump incoming" = SHORT
+Technical terms: "breakout" often implies LONG, "breakdown" often implies SHORT
+Emoji analysis: Bull emojis (🐂, 🚀) suggest LONG, bear emojis (🐻, 📉) suggest SHORT
+
+
+Price Information:
+
+Entry points: Look for terms like "entry," "enter at," "entry zone," "current price"
+Take profits: "TP," "target," "take profit," "exit at," multiple levels often numbered
+Stop loss: "SL," "stop," "cut loss at," "exit if below/above"
+
+
+Additional Signal Components (not required but strengthen validity):
+
+Leverage: "10x," "leverage: 5x," etc.
+Timeframe: "4H chart," "daily," "scalp," "swing trade," etc.
+Risk/reward ratio: "R = 3:1," etc.
+Chart patterns or indicators: "RSI oversold," "double bottom," etc.
+
+
+
+Examples of Valid Signals
+
+"LONG BTC/USDT with 50x leverage Entry at 65000 TP: 66000, 67000 SL: 64000"
+"Short ETH/USDT at 3400, target 3300, stop at 3500"
+"BTC entry now 🔥 targets at 68K and 70K"
+"Ethereum looking good for a long position - enter at 3200, targets 3350 and 3500"
+"AVAX/USDT: Going short here at 35.6 with tight stop above 36.2, targets: 34, 32.5, 30"
+"Bitcoin 🚀 Entry zone: 63800-64200, TP1: 65K, TP2: 67K, SL: 62.5K"
+"$SOL ready to pump! Buy spot or 5x long at current price, exit at 145+"
+
+Examples of Invalid Signals
+
+"Market is looking bearish today"
+"Who's ready for some trading today?"
+"Check out our new platform at trading.example.com"
+"BTC chart analysis coming soon"
+"Is ETH a good investment?"
+"Join our premium group for the best signals!"
+
+Processing Instructions
+
+First, scan for trading pairs by looking for cryptocurrency names or symbols.
+Then look for position direction indicators (explicit or implicit).
+Search for price information (entry, take profit, stop loss).
+Analyze context if direction is not explicit.
+Extract additional signal components to complete the details object.
+Assign a confidence score based on how many components are present and how clearly they're stated.
+Make your final determination on validity.
 
 ONLY respond with the JSON object, nothing else.
 """
@@ -1009,7 +1097,7 @@ def run_bot_with_recovery():
             if consecutive_failures >= 5 and is_supervised():
                 # If running as supervised process, keep retrying
                 logger.error("Too many consecutive failures, waiting for supervisor to restart")
-                time.sleep(60)
+                time.sleep(30)
                 consecutive_failures = 0
             elif consecutive_failures >= 5:
                 logger.critical("Too many consecutive failures. Please check bot configuration.")
