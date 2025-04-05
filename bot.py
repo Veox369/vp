@@ -256,16 +256,16 @@ CACHE_FILE = "signal_cache.json"
 KEYWORDS = ['long', 'short', 'sell', 'buy', "لانگ", "شورت"]
 
 # Bot configuration
-TELEGRAM_TOKEN = "1234567897:AIzaSyxxxxxxxxxxxxxxxxx"  # Get from @BotFather
-TELEGRAM_CHANNEL_ID = "-100xxxxxxxx"  # Channel to forward signals to
-TELEGRAM_CHANNEL_USERNAME = "@xxxxxx"  # Channel username
+TELEGRAM_TOKEN = "8183212777:AAFzQZYcCLNZFYPeUquCfecO6ADrhmUfb1w"  # Get from @BotFather
+TELEGRAM_CHANNEL_ID = "-1002658546073"  # Channel to forward signals to
+TELEGRAM_CHANNEL_USERNAME = "@VeoxTrade"  # Channel username
 GEMINI_KEYS = [    # Add more keys as needed
-    "AIzaSyxxxxxxxxxxxxxxxxx",
-    "AIzaSyxxxxxxxxxxxxxxxxx",
-    "AIzaSyxxxxxxxxxxxxxxxxx",
-    "AIzaSyxxxxxxxxxxxxxxxxx",
-    "AIzaSyxxxxxxxxxxxxxxxxx",
-    "AIzaSyxxxxxxxxxxxxxxxxx",
+    "AIzaSyBCNB4lKToycJ7o80pjdyezROASl6ewhck",
+    "AIzaSyBWgcETIilK1qjuCreKA3m65zI5byOVYJM",
+    "AIzaSyCyuF9GiSLCJKTq6rWs0suadkJUREKJByA",
+    "AIzaSyDCZ2K0YJ_DqmRUD0pkqitqY-aqEfUo0EA",
+    "AIzaSyAhGQY7gOAA4vZ-L5PukVSQa5R5sXWinUU",
+    "AIzaSyDQ8ffQ4xfkewCEhcb5UYNwsWPKFTBog04",
 ]
 GEMINI_MODEL = 'gemini-2.0-flash-lite'
 
@@ -280,7 +280,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('bot.log'),
         logging.StreamHandler()
     ]
 )
@@ -720,6 +719,14 @@ def process_message_with_gemini(message_text, source_url=None):
                 stop_loss=format_stop_loss(data.get('stop_loss', [])),
                 source_section=source_section
             )
+
+            # Check for unwanted pattern in formatted message
+            if "• LEVERAGE : ×36" in formatted_message and \
+               "• ENTRY : None" in formatted_message and \
+                "• ENTRY : MARKET" in formatted_message and \
+               "WILL BE ANNOUNCED" in formatted_message:
+                logger.info("Message rejected: matches unwanted pattern (x36, no entry, only TP announced)")
+                return None, "Message contains unwanted pattern", None
 
             return formatted_message, None, data
 
